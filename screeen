@@ -1,2 +1,151 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'package:flutter_webview_plugin/flutter_webview_plugin.dart'; // For SSO Redirection
 
-
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Bank Alfalah Payment',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: PaymentPage(),
+    );
+  }
+}
+
+class PaymentPage extends StatefulWidget {
+  @override
+  _PaymentPageState createState() => _PaymentPageState();
+}
+
+class _PaymentPageState extends State<PaymentPage> {
+  String? authToken;
+  String? requestHash1;
+  
+  final String url = "https://sandbox.bankalfalah.com/HS/HS/HS";
+  final String returnUrl = "https://google.com";
+  final String key1 = ""; // Your encryption key
+  final String key2 = ""; // Your IV for encryption
+  final String hsChannelId = "1001";
+  final String merchantId = "";
+  final String storeId = "";
+  final String merchantUsername = "";
+  final String merchantPassword = "";
+  
+  int bankOrderId = DateTime.now().millisecondsSinceEpoch; // Random unique order ID
+  String transactionAmount = "3";  // Example amount
+  String transactionTypeId = "3";  // Example type ID
+
+  Future<void> initiateHandshake() async {
+    String mapString = "HS_ChannelId=$hsChannelId"
+        "&HS_IsRedirectionRequest=0"
+        "&HS_MerchantId=$merchantId"
+        "&HS_StoreId=$storeId"
+        "&HS_ReturnURL=$returnUrl"
+        "&HS_MerchantHash="
+        "&HS_MerchantUsername=$merchantUsername"
+        "&HS_MerchantPassword=$merchantPassword"
+        "&HS_TransactionReferenceNumber=$bankOrderId";
+
+    // Encrypt handshake
+    var cipherText = _encrypt(mapString, key1, key2);
+    String hashRequest = base64Encode(cipherText);
+
+    // Prepare handshake request
+    var fields = {
+      "HS_ChannelId": hsChannelId,
+      "HS_IsRedirectionRequest": "0",
+      "HS_MerchantId": merchantId,
+      "HS_StoreId": storeId,
+      "HS_ReturnURL": returnUrl,
+      "HS_MerchantHash": "",
+      "HS_MerchantUsername": merchantUsername,
+      "HS_MerchantPassword": merchantPassword,
+      "HS_TransactionReferenceNumber": "$bankOrderId",
+      "HS_RequestHash": hashRequest,
+    };
+
+    final response = await http.post(Uri.parse(url), body: fields);
+    var handshake = jsonDecode(response.body);
+
+    setState(() {
+      authToken = handshake['AuthToken'];
+    });
+  }
+
+  Future<void> processPayment() async {
+    if (authToken == null) return;
+
+    String mapStringSSO = "AuthToken=$authToken"
+        "&RequestHash="
+        "&ChannelId=$hsChannelId"
+        "&Currency=PKR"
+        "&IsBIN=0"
+        "&ReturnURL=$returnUrl"
+        "&MerchantId=$merchantId"
+        "&StoreId=$storeId"
+        "&MerchantHash="
+        "&MerchantUsername=$merchantUsername"
+        "&MerchantPassword=$merchantPassword"
+        "&TransactionTypeId=3"
+        "&TransactionReferenceNumber=$bankOrderId"
+        "&TransactionAmount=$transactionAmount";
+
+    // Encrypt the SSO request
+    var cipherText = _encrypt(mapStringSSO, key1, key2);
+    requestHash1 = base64Encode(cipherText);
+
+    // Navigate to WebView for payment
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WebviewScaffold(
+            url: "https://sandbox.bankalfalah.com/SSO/SSO/SSO",
+            hidden: true,
+            appBar: AppBar(title: Text("Complete Payment")),
+            withZoom: true,
+            withLocalStorage: true,
+            initialChild: Center(child: CircularProgressIndicator()),
+          ),
+        ));
+  }
+
+  List<int> _encrypt(String input, String key, String iv) {
+    // AES encryption logic
+    // Use cryptography package to encrypt
+    // This is just a placeholder, actual implementation would use AES
+    return utf8.encode(input);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Bank Alfalah Payment")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            ElevatedButton(
+              onPressed: initiateHandshake,
+              child: Text("Start Handshake"),
+            ),
+            ElevatedButton(
+              onPressed: processPayment,
+              child: Text("Proceed to Payment"),
+            ),
+            if (authToken != null) Text("AuthToken: $authToken"),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
